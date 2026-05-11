@@ -147,9 +147,8 @@
         .modal-card {
             background: white;
             border-radius: 32px;
-            width: 700px;
             max-width: 90%;
-            padding: 24px;
+            padding: 18px;
             box-shadow: 0 20px 30px rgba(0,0,0,0.3);
         }
         .modal-card h3 { margin-top: 0; }
@@ -578,21 +577,26 @@
         let dateStr = currentDates[dateIdx];
         let modalDiv = document.createElement('div');
         modalDiv.className = 'modal-mask';
-        modalDiv.innerHTML = `
-            <div class="modal-card">
-                <h3>✏️ 逐日确认 · ${emp.name} (${dateStr})</h3>
-                <div class="form-row"><label>原始上班打卡</label><span>${clockInStr || '无'}</span></div>
-                <div class="form-row"><label>原始下班打卡</label><span>${clockOutStr || '无'}</span></div>
-                <div class="form-row"><label>规则比对状态</label><span>${baseStatusText}</span></div>
-                <div class="form-row"><label>基础工时(自动)</label><span>${cellData.baseHours.toFixed(1)} h</span></div>
-                <div class="form-row"><label>➕ 加班时长(h)</label><input type="number" step="0.5" id="otInput" value="${cellData.overtimeHours}" /></div>
-                <div class="form-row"><label>🕒 调休时长(h)</label><input type="number" step="0.5" id="offInput" value="${cellData.offHours}" /></div>
-                <div class="form-row"><label>🛌 全天休息</label><input type="checkbox" id="restChk" ${cellData.isRest ? 'checked' : ''} /></div>
-                <div class="form-row"><label>最终出勤工时</label><span id="finalPreview">0</span> h</div>
-                <div class="form-row"><label>最终状态</label><span id="statusPreview">-</span></div>
-                <div class="modal-buttons"><button class="btn" id="modalSaveBtn">保存</button><button class="btn" id="modalCancelBtn">取消</button></div>
-            </div>
-        `;
+modalDiv.innerHTML = `
+    <div class="modal-card">
+        <h3>✏️ 逐日确认 · ${emp.name} (${dateStr})</h3>
+        <table class="rule-table"><thead><tr><th>项目</th><th>内容</th></tr></thead><tbody>
+            <tr><td>原始上班打卡</td><td>${clockInStr || '无'}</td></tr>
+            <tr><td>原始下班打卡</td><td>${clockOutStr || '无'}</td></tr>
+            <tr><td>规则比对状态</td><td>${baseStatusText}</td></tr>
+            <tr><td>基础工时(自动)</td><td>${cellData.baseHours.toFixed(1)} h</td></tr>
+            <tr><td>➕ 加班时长(h)</td><td><input type="number" step="0.5" id="otInput" value="${cellData.overtimeHours}" style="width: 60%;" /></td></tr>
+            <tr><td>🕒 调休时长(h)</td><td><input type="number" step="0.5" id="offInput" value="${cellData.offHours}" style="width: 60%;" /></td></tr>
+            <tr><td>🛌 全天休息</td><td><input type="checkbox" id="restChk" ${cellData.isRest ? 'checked' : ''} /></td></tr>
+            <tr><td>最终出勤工时</td><td><span id="finalPreview">0</span> h</td></tr>
+            <tr><td>最终状态</td><td><span id="statusPreview">-</span></td></tr>
+        </tbody></table>
+        <div class="modal-buttons">
+            <button class="btn" id="modalSaveBtn">保存</button>
+            <button class="btn" id="modalCancelBtn">取消</button>
+        </div>
+    </div>
+`;
         document.body.appendChild(modalDiv);
         activeModal = modalDiv;
         let otInp = modalDiv.querySelector('#otInput'), offInp = modalDiv.querySelector('#offInput'), restChk = modalDiv.querySelector('#restChk'), finalSpan = modalDiv.querySelector('#finalPreview'), statusSpan = modalDiv.querySelector('#statusPreview');
