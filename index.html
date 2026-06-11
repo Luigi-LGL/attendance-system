@@ -123,7 +123,7 @@
 			background: #f1f5f9;
 			padding: 12px;
 			border-radius: 16px;
-			text-align: center;
+			text-align: left;
 		}
 		input, select {
 			border-radius: 20px;
@@ -227,10 +227,9 @@
 	</div>
 	<div class="footer-note">
 		✅ 导入打卡记录后，系统自动将每日最早/最晚打卡与员工上下班规则比对，标记迟到、早退、正常或休息。<br>
-		✅ 新规则：出勤工时 = 有效下班时间 - 有效上班时间（迟到向上取整至半点，早退向下取整至半点）。<br>
-		🤝 双人顶班规则自动应用于“王元琴”和“龚晓燕”，当仅一人出勤时该员工规定上下班时间(7:30-17:30)。点击单元格可手动调整加班/调休/休息。
-		📌 有效上班时间 = max(规定上班, 向上取整至半点(实际打卡)) ；有效下班时间 = 若实际下班晚于规定下班则取规定下班，否则取向下取整至半点(实际下班)。<br>
-		💡 点击工时单元格 → 逐日确认加班/调休/全天休息。最终状态优先级：休息 > 调休 > 加班 > (迟到/早退/工作)。
+		📌 根据员工规定的上下班时间：实际上班打卡若早于规定上班则取规定上班时间，若晚于规定上班则向后取整到半小时；实际下班打卡若早于规定下班则向前取整到半小时，若晚于规定下班则取规定下班时间。<br>
+		🤝 双人顶班规则自动应用于“王元琴”和“龚晓燕”，当仅一人出勤时该员工规定上下班时间(7:30-17:30)。点击单元格可手动调整加班/调休/休息。<br>
+		💡 点击工时单元格 → 逐日确认加班/调休/全天休息。最终状态优先级：休息 > 调休 > 加班 > (迟到/早退/工作)。<br>
 	</div>
 </div>
 
@@ -293,16 +292,16 @@
 		let s = parseInt(parts[2]) || 0;
 		return h + m/60 + s/3600;
 	}
-	// 向上取整到半点 (09:12 -> 09:30 ; 09:31 -> 10:00)
-	function roundUpToHalfHour(timeStr) {
+	// 向后取整到半点 (09:12 -> 09:30 ; 09:31 -> 10:00)
+	function roundBackToHalfHour(timeStr) {
 		let minutes = timeStrToMinutes(timeStr);
 		let remainder = minutes % 30;
 		if (remainder === 0) return timeStr;
 		let upMinutes = minutes + (30 - remainder);
 		return minutesToTimeStr(upMinutes);
 	}
-	// 向下取整到半点 (18:28 -> 18:00 ; 18:45 -> 18:30)
-	function roundDownToHalfHour(timeStr) {
+	// 向前取整到半点 (18:28 -> 18:00 ; 18:45 -> 18:30)
+	function roundFrontToHalfHour(timeStr) {
 		let minutes = timeStrToMinutes(timeStr);
 		let downMinutes = Math.floor(minutes / 30) * 30;
 		return minutesToTimeStr(downMinutes);
@@ -310,8 +309,8 @@
 	// 核心: 根据员工上下班规则 + 实际打卡，计算有效工时(小时)
 	function computeEffectiveWorkHours(clockIn, clockOut, workStart, workEnd) {
 		if (!clockIn || !clockOut) return 0;
-		// 有效上班时间: max(规定上班时间, 向上取整至半点(实际上班))
-		let effectiveStartRaw = roundUpToHalfHour(clockIn);
+		// 有效上班时间: max(规定上班时间, 向后取整至半点(实际上班))
+		let effectiveStartRaw = roundBackToHalfHour(clockIn);
 		let startBound = workStart;
 		let effectiveStart = (timeStrToMinutes(effectiveStartRaw) > timeStrToMinutes(startBound)) ? effectiveStartRaw : startBound;
 		// 有效下班时间:
@@ -322,8 +321,8 @@
 			// 加班: 只计算到规定下班时间
 			effectiveEnd = workEnd;
 		} else {
-			// 早退或准时: 向下取整到半点
-			effectiveEnd = roundDownToHalfHour(clockOut);
+			// 早退或准时: 向前取整到半点
+			effectiveEnd = roundFrontToHalfHour(clockOut);
 		}
 		let startM = timeStrToMinutes(effectiveStart);
 		let endM = timeStrToMinutes(effectiveEnd);
