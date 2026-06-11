@@ -1,839 +1,989 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>智能考勤统计 - 迟到早退自动识别 + 状态着色</title>
-    <!-- SheetJS 解析 Excel/CSV -->
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-    <style>
-        * {
-            box-sizing: border-box;
-            font-family: system-ui, 'Segoe UI', 'Roboto', 'Noto Sans', sans-serif;
-        }
-        body {
-            background: #f0f2f5;
-            margin: 0;
-            padding: 20px;
-        }
-        .container {
-            max-width: 98vw;
-            overflow-x: auto;
-            background: white;
-            border-radius: 24px;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.1);
-            padding: 20px 24px;
-        }
-        h1 {
-            font-size: 1.8rem;
-            margin-top: 0;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            color: #1e293b;
-        }
-        .toolbar {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-            margin-bottom: 24px;
-            background: #f8fafc;
-            padding: 16px;
-            border-radius: 20px;
-            align-items: center;
-            border: 1px solid #e2e8f0;
-        }
-        .btn {
-            background: white;
-            border: 1px solid #cbd5e1;
-            padding: 6px 14px;
-            border-radius: 40px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-size: 0.85rem;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
-        }
-        .btn-primary {
-            background: #2c3e66;
-            border-color: #1e293b;
-            color: white;
-        }
-        .btn-primary:hover { background: #1e2a4a; }
-        .btn:hover { background: #eef2ff; transform: translateY(-1px); }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-            table-layout: auto; /* 列宽自适应 */
-        }
-        th, td {
-            border: 1px solid #e2e8f0;
-            padding: 8px 6px;
-            text-align: center;
-            white-space: nowrap;
-        }
-        th {
-            background: #1e293b;
-            color: white;
-            font-weight: 600;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-        }
-        tr:hover td {
-            background-color: #fef9e3;
-        }
-        .editable-cell {
-            cursor: pointer;
-            font-weight: 500;
-        }
-        /* 状态颜色 */
-        .status-rest { background-color: #d1fae5 !important; }      /* 休息 - 绿色 */
-        .status-work { background-color: #ffffff !important; }     /* 工作 - 灰色 */
-        .status-late { background-color: #ffedd5 !important; }     /* 迟到 - 浅橙色 */
-        .status-early { background-color: #fce7f3 !important; }    /* 早退 - 浅粉 */
-        .status-late-early { background-color: #fed7aa !important; }/* 迟到+早退 - 深杏色 */
-        .status-overtime { background-color: #dbeafe !important; }  /* 加班 - 蓝色 */
-        .status-off { background-color: #fef9c3 !important; }       /* 调休 - 黄色 */
-        .status-miss { background-color: #fee2e2 !important; }      /* 漏打卡 - 红色 */
-        .editable-expected {
-            background-color: #fef9e3;
-            cursor: text;
-            min-width: 70px;
-        }
-        .editable-expected:focus {
-            outline: 2px solid #3b82f6;
-            background-color: white;
-        }
-        .footer-note {
-            margin-top: 20px;
-            font-size: 12px;
-            color: #475569;
-            background: #f1f5f9;
-            padding: 12px;
-            border-radius: 16px;
-            text-align: center;
-        }
-        input, select {
-            border-radius: 20px;
-            border: 1px solid #cbd5e1;
-            padding: 6px 12px;
-        }
-        .month-picker {
-            display: inline-flex;
-            align-items: center;
-            gap: 12px;
-            background: white;
-            padding: 3px 15px;
-            border-radius: 40px;
-        }
-        .employee-rule-tag {
-            font-size: 10px;
-            background: #d9f0ec;
-            border-radius: 12px;
-            padding: 2px 6px;
-            margin-left: 6px;
-        }
-        .modal-mask {
-            position: fixed;
-            top:0;left:0;width:100%;height:100%;
-            background: rgba(0,0,0,0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-        }
-        .modal-card {
-            background: white;
-            border-radius: 32px;
-            width: 700px;
-            max-width: 90%;
-            padding: 24px;
-            box-shadow: 0 20px 30px rgba(0,0,0,0.3);
-        }
-        .modal-card h3 { margin-top: 0; }
-        .form-row {
-            margin-bottom: 14px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .form-row label { font-weight: 600; width: 120px; }
-        .form-row input, .form-row select { width: 200px; }
-        .modal-buttons { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
-        hr { margin: 16px 0; }
-        .rule-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 16px;
-        }
-        .rule-table th, .rule-table td {
-            border: 1px solid #cbd5e1;
-            padding: 8px;
-            text-align: left;
-            white-space: nowrap;
-        }
-        .status-badge {
-            display: inline-block;
-            font-size: 10px;
-            margin-left: 4px;
-            padding: 0 4px;
-            border-radius: 12px;
-            background: rgba(0,0,0,0.05);
-        }
-    </style>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+	<title>智能考勤统计</title>
+	<!-- SheetJS 解析 Excel/CSV -->
+	<script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+	<style>
+		* {
+			box-sizing: border-box;
+			font-family: system-ui, 'Segoe UI', 'Roboto', 'Noto Sans', sans-serif;
+		}
+		body {
+			background: #f0f2f5;
+			margin: 0;
+			padding: 20px;
+		}
+		.container {
+			max-width: 98vw;
+			overflow-x: auto;
+			background: white;
+			border-radius: 24px;
+			box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+			padding: 20px 24px;
+		}
+		h1 {
+			font-size: 1.8rem;
+			margin-top: 0;
+			display: flex;
+			align-items: center;
+			gap: 12px;
+			color: #1e293b;
+			flex-wrap: wrap;
+		}
+		.toolbar {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 12px;
+			margin-bottom: 24px;
+			background: #f8fafc;
+			padding: 16px;
+			border-radius: 20px;
+			align-items: center;
+			border: 1px solid #e2e8f0;
+		}
+		.btn {
+			background: white;
+			border: 1px solid #cbd5e1;
+			padding: 6px 14px;
+			border-radius: 40px;
+			font-weight: 500;
+			cursor: pointer;
+			transition: all 0.2s;
+			font-size: 0.85rem;
+			box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+		}
+		.btn-primary {
+			background: #2c3e66;
+			border-color: #1e293b;
+			color: white;
+		}
+		.btn-primary:hover { background: #1e2a4a; }
+		.btn:hover { background: #eef2ff; transform: translateY(-1px); }
+		.special-badge {
+			background: #f59e0b;
+			color: white;
+			font-size: 10px;
+			border-radius: 20px;
+			padding: 2px 6px;
+			margin-left: 6px;
+			display: inline-block;
+		}
+		table {
+			width: 100%;
+			border-collapse: collapse;
+			font-size: 13px;
+			table-layout: auto;
+		}
+		th, td {
+			border: 1px solid #e2e8f0;
+			padding: 8px 6px;
+			text-align: center;
+			white-space: nowrap;
+		}
+		th {
+			background: #1e293b;
+			color: white;
+			font-weight: 600;
+			position: sticky;
+			top: 0;
+			z-index: 10;
+		}
+		tr:hover td {
+			background-color: #fef9e3;
+		}
+		.editable-cell {
+			cursor: pointer;
+			font-weight: 500;
+		}
+		/* 状态颜色 */
+		.status-rest { background-color: #d1fae5 !important; }
+		.status-work { background-color: #ffffff !important; }
+		.status-late { background-color: #ffedd5 !important; }
+		.status-early { background-color: #fce7f3 !important; }
+		.status-late-early { background-color: #fed7aa !important; }
+		.status-overtime { background-color: #dbeafe !important; }
+		.status-off { background-color: #fef9c3 !important; }
+		.status-miss { background-color: #fee2e2 !important; }
+		.editable-expected {
+			background-color: #fef9e3;
+			cursor: text;
+			min-width: 70px;
+		}
+		.editable-expected:focus {
+			outline: 2px solid #3b82f6;
+			background-color: white;
+		}
+		.footer-note {
+			margin-top: 20px;
+			font-size: 12px;
+			color: #475569;
+			background: #f1f5f9;
+			padding: 12px;
+			border-radius: 16px;
+			text-align: center;
+		}
+		input, select {
+			border-radius: 20px;
+			border: 1px solid #cbd5e1;
+			padding: 6px 12px;
+		}
+		.month-picker {
+			display: inline-flex;
+			align-items: center;
+			gap: 12px;
+			background: white;
+			padding: 3px 15px;
+			border-radius: 40px;
+		}
+		.employee-rule-tag {
+			font-size: 10px;
+			background: #d9f0ec;
+			border-radius: 12px;
+			padding: 2px 6px;
+			margin-left: 6px;
+		}
+		.modal-mask {
+			position: fixed;
+			top:0;left:0;width:100%;height:100%;
+			background: rgba(0,0,0,0.5);
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			z-index: 1000;
+		}
+		.modal-card {
+			background: white;
+			border-radius: 32px;
+			max-width: 90%;
+			padding: 18px;
+			box-shadow: 0 20px 30px rgba(0,0,0,0.3);
+		}
+		.modal-card h3 { margin-top: 0; }
+		.modal-buttons { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
+		.rule-table {
+			width: 100%;
+			border-collapse: collapse;
+			margin-bottom: 16px;
+		}
+		.rule-table th, .rule-table td {
+			border: 1px solid #cbd5e1;
+			padding: 8px;
+			text-align: left;
+			white-space: nowrap;
+		}
+		.status-badge {
+			display: inline-block;
+			font-size: 10px;
+			margin-left: 4px;
+			padding: 0 4px;
+			border-radius: 12px;
+			background: rgba(0,0,0,0.05);
+		}
+		.info-tip {
+			background: #e6f7ff;
+			border-left: 4px solid #1890ff;
+			padding: 8px 12px;
+			margin-bottom: 16px;
+			font-size: 12px;
+			border-radius: 8px;
+		}
+	</style>
 </head>
 <body>
 <div class="container">
-    <h1>📊 智能考勤 · 迟到/早退自动识别 | 状态着色 | 逐日确认</h1>
-    
-    <div class="toolbar">
-        <button class="btn" id="importExcelBtn">📂 导入打卡记录(含上下班识别)</button>
-        <button class="btn" id="importEmpRuleBtn">👥 导入员工规则(CSV)</button>
-        <button class="btn" id="viewEmpRuleBtn">👁️ 查看员工规则</button>
-        <button class="btn" id="exportEmpRuleBtn">📎 导出员工规则CSV</button>
-        <button class="btn" id="downloadTemplateBtn">📄 下载员工规则模板</button>
-        <button class="btn" id="exportStatsBtn">📎 导出考勤表CSV</button>
-        <div class="month-picker">
-            <span>📅 考勤月份</span>
-            <input type="month" id="monthSelector" />
-        </div>
-        <span style="font-size:12px;line-height:24px;">
-            🎨 状态图例：
-            <span style="display:inline-block;width:14px;height:14px;background:#d1fae5;margin-right:4px;border-radius:2px;"></span>休息
-            <span style="display:inline-block;width:14px;height:14px;background:#ffffff;margin:0 4px;border-radius:2px;"></span>正常
-            <span style="display:inline-block;width:14px;height:14px;background:#ffedd5;margin:0 4px;border-radius:2px;"></span>迟到
-            <span style="display:inline-block;width:14px;height:14px;background:#fce7f3;margin:0 4px;border-radius:2px;"></span>早退
-            <span style="display:inline-block;width:14px;height:14px;background:#fed7aa;margin:0 4px;border-radius:2px;"></span>迟到+早退
-            <span style="display:inline-block;width:14px;height:14px;background:#dbeafe;margin:0 4px;border-radius:2px;"></span>加班
-            <span style="display:inline-block;width:14px;height:14px;background:#fef9c3;margin:0 4px;border-radius:2px;"></span>调休
-            <span style="display:inline-block;width:14px;height:14px;background:#fee2e2;margin:0 4px;border-radius:2px;"></span>漏打卡
-        </span>
-    </div>
+	<h1>📊 智能考勤</h1>
+	<div class="toolbar">
+		<button class="btn" id="importExcelBtn">📂 导入打卡记录(含上下班识别)</button>
+		<button class="btn" id="importEmpRuleBtn">👥 导入员工规则(CSV)</button>
+		<button class="btn" id="viewEmpRuleBtn">👁️ 查看员工规则</button>
+		<button class="btn" id="exportEmpRuleBtn">📎 导出员工规则CSV</button>
+		<button class="btn" id="downloadTemplateBtn">📄 下载员工规则模板</button>
+		<button class="btn" id="exportStatsBtn">📎 导出考勤表CSV</button>
+		<div class="month-picker">
+			<span>📅 考勤月份</span>
+			<input type="month" id="monthSelector" />
+		</div>
+		<span style="font-size:12px;line-height:24px;">
+			🎨 状态图例：
+			<span style="display:inline-block;width:14px;height:14px;background:#d1fae5;margin-right:4px;border-radius:2px;"></span>休息
+			<span style="display:inline-block;width:14px;height:14px;background:#ffffff;margin:0 4px;border-radius:2px;"></span>正常
+			<span style="display:inline-block;width:14px;height:14px;background:#ffedd5;margin:0 4px;border-radius:2px;"></span>迟到
+			<span style="display:inline-block;width:14px;height:14px;background:#fce7f3;margin:0 4px;border-radius:2px;"></span>早退
+			<span style="display:inline-block;width:14px;height:14px;background:#fed7aa;margin:0 4px;border-radius:2px;"></span>迟到+早退
+			<span style="display:inline-block;width:14px;height:14px;background:#dbeafe;margin:0 4px;border-radius:2px;"></span>加班
+			<span style="display:inline-block;width:14px;height:14px;background:#fef9c3;margin:0 4px;border-radius:2px;"></span>调休
+			<span style="display:inline-block;width:14px;height:14px;background:#fee2e2;margin:0 4px;border-radius:2px;"></span>漏打卡
+		</span>
+	</div>
 
-    <div style="overflow-x: auto; border-radius: 20px;">
-        <table id="attendanceTable">
-            <thead id="tableHeader"></thead>
-            <tbody id="tableBody"></tbody>
-        </table>
-    </div>
-    <div class="footer-note">
-        ✅ 导入打卡记录后，系统自动将每日最早/最晚打卡与员工上下班规则比对，标记迟到、早退、正常或休息。<br>
-        💡 点击工时单元格 → 逐日确认加班/调休/全天休息。最终状态优先级：休息 > 调休 > 加班 > (迟到/早退/工作)。
-    </div>
+	<div style="overflow-x: auto; border-radius: 20px;">
+		<table id="attendanceTable">
+			<thead id="tableHeader"></thead>
+			<tbody id="tableBody"></tbody>
+		</table>
+	</div>
+	<div class="footer-note">
+		✅ 导入打卡记录后，系统自动将每日最早/最晚打卡与员工上下班规则比对，标记迟到、早退、正常或休息。<br>
+		✅ 新规则：出勤工时 = 有效下班时间 - 有效上班时间（迟到向上取整至半点，早退向下取整至半点）。<br>
+		🤝 双人顶班规则自动应用于“王元琴”和“龚晓燕”，当仅一人出勤时该员工规定上下班时间(7:30-17:30)。点击单元格可手动调整加班/调休/休息。
+		📌 有效上班时间 = max(规定上班, 向上取整至半点(实际打卡)) ；有效下班时间 = 若实际下班晚于规定下班则取规定下班，否则取向下取整至半点(实际下班)。<br>
+		💡 点击工时单元格 → 逐日确认加班/调休/全天休息。最终状态优先级：休息 > 调休 > 加班 > (迟到/早退/工作)。
+	</div>
 </div>
 
 <script>
-    // ---------- 全局数据 ----------
-    let employees = [];          // { id, empNo, name, workStart, workEnd, dailyStdHours (仅用于迟到早退比对) }
-    let rawPunchRecords = [];    // { empId, dateStr, clockInTime, clockOutTime, baseHoursAuto }
-    let attendanceGrid = [];     // 按 [日期索引][员工id] 存储
-    let currentDates = [];
-    let currentYearMonth = "";
-    let nextEmpId = 100;
-    let manualExpectedHours = {}; // 存储每个员工的手动应出勤工时，key: empId
-    
-    // ================= 时间格式转换工具 =================
-    function excelTimeToHHMMSS(num) {
-        if (typeof num !== 'number') return num;
-        let totalSeconds = Math.floor(num * 86400);
-        let hours = Math.floor(totalSeconds / 3600);
-        let minutes = Math.floor((totalSeconds % 3600) / 60);
-        let seconds = totalSeconds % 60;
-        return `${hours.toString().padStart(2,'0')}:${minutes.toString().padStart(2,'0')}:${seconds.toString().padStart(2,'0')}`;
-    }
-    
-    function normalizeTimeToHMS(timeVal) {
-        if (!timeVal && timeVal !== 0) return "09:00:00";
-        if (typeof timeVal === 'number') return excelTimeToHHMMSS(timeVal);
-        let str = String(timeVal).trim();
-        if (/^\d{1,2}:\d{2}:\d{2}$/.test(str)) return str.padStart(8, '0');
-        if (/^\d{1,2}:\d{2}$/.test(str)) {
-            let parts = str.split(':');
-            return `${parts[0].padStart(2,'0')}:${parts[1]}:00`;
-        }
-        return "09:00:00";
-    }
-    
-    function timeToHour(timeStr) {
-        if (!timeStr) return 0;
-        let parts = timeStr.split(':');
-        let h = parseInt(parts[0]);
-        let m = parseInt(parts[1]) || 0;
-        let s = parseInt(parts[2]) || 0;
-        return h + m/60 + s/3600;
-    }
-    
-    function getEmpById(eid) {
-        return employees.find(e => e.id === eid);
-    }
-    
-    // 生成当月日期
-    function generateMonthDates(yearMonth) {
-        let [year, month] = yearMonth.split('-').map(Number);
-        let date = new Date(year, month, 0);
-        let days = date.getDate();
-        let dates = [];
-        for (let i = 1; i <= days; i++) {
-            let d = new Date(year, month-1, i);
-            let y = d.getFullYear();
-            let m = (d.getMonth()+1).toString().padStart(2,'0');
-            let day = i.toString().padStart(2,'0');
-            dates.push(`${y}-${m}-${day}`);
-        }
-        currentDates = dates;
-    }
-    
-    // 根据规则和实际打卡时间，计算基础状态
-    function computeBaseStatus(emp, clockIn, clockOut) {
-        if (!clockIn || !clockOut) return "miss";
-        const ruleStart = emp.workStart;
-        const ruleEnd = emp.workEnd;
-        const isLate = timeToHour(clockIn) > timeToHour(ruleStart);
-        const isEarly = timeToHour(clockOut) < timeToHour(ruleEnd);
-        if (isLate && isEarly) return "late_early";
-        if (isLate) return "late";
-        if (isEarly) return "early";
-        return "work";
-    }
-    
-    // 最终状态（优先级：休息 > 调休 > 加班 > 基础状态）
-    function computeFinalStatus(cell) {
-        if (cell.isRest) return "rest";
-        if (cell.offHours && cell.offHours > 0) return "off";
-        if (cell.overtimeHours && cell.overtimeHours > 0) return "overtime";
-        return cell.baseStatus;
-    }
-    
-    // 从原始打卡记录构建 rawPunchRecords
-    function processRawImportToRecords(rows, headerMap) {
-        let dailyMap = new Map();
-        for (let i = 1; i < rows.length; i++) {
-            let row = rows[i];
-            let empNo = row[headerMap.empNoIdx]?.toString().trim();
-            let name = row[headerMap.nameIdx]?.toString().trim();
-            let dateRaw = row[headerMap.dateIdx];
-            let timeRaw = row[headerMap.timeIdx];
-            if (!empNo || !name || !dateRaw) continue;
-            let dateStr = null;
-            if (dateRaw) {
-                let d = new Date(dateRaw);
-                if (!isNaN(d.getTime())) dateStr = d.toISOString().slice(0,10);
-                else dateStr = dateRaw.toString().slice(0,10);
-            }
-            if (!dateStr) continue;
-            let timeStr = null;
-            if (timeRaw) {
-                let t = timeRaw.toString().trim();
-                if (t.match(/\d{1,2}:\d{2}/)) timeStr = normalizeTimeToHMS(t);
-                else if (typeof timeRaw === 'number') timeStr = excelTimeToHHMMSS(timeRaw);
-                else timeStr = normalizeTimeToHMS(t);
-            }
-            if (!timeStr) continue;
-            let key = `${empNo}_${dateStr}`;
-            if (!dailyMap.has(key)) {
-                dailyMap.set(key, { empNo, name, dateStr, times: [] });
-            }
-            dailyMap.get(key).times.push(timeStr);
-        }
-        let records = [];
-        for (let item of dailyMap.values()) {
-            let times = item.times;
-            if (times.length === 0) continue;
-            times.sort((a,b) => timeToHour(a) - timeToHour(b));
-            let clockIn = times[0];
-            let clockOut = times[times.length-1];
-            let workHours = timeToHour(clockOut) - timeToHour(clockIn);
-            workHours = workHours > 0 ? Math.round(workHours * 10) / 10 : 0;
-            let emp = employees.find(e => e.empNo === item.empNo);
-            if (!emp) continue;
-            records.push({
-                empId: emp.id,
-                dateStr: item.dateStr,
-                clockInTime: clockIn,
-                clockOutTime: clockOut,
-                baseHoursAuto: workHours
-            });
-        }
-        return records;
-    }
-    
-    // 重建考勤网格
-    function rebuildGridFromRecords() {
-        if (!employees.length) {
-            attendanceGrid = [];
-            return;
-        }
-        if (!currentDates.length) generateMonthDates(currentYearMonth);
-        let monthRecords = rawPunchRecords.filter(r => r.dateStr.startsWith(currentYearMonth));
-        let grid = [];
-        for (let iDate = 0; iDate < currentDates.length; iDate++) {
-            let row = {};
-            for (let emp of employees) {
-                let rec = monthRecords.find(r => r.empId === emp.id && r.dateStr === currentDates[iDate]);
-                if (rec) {
-                    let baseHrs = rec.baseHoursAuto;
-                    let baseStatus = computeBaseStatus(emp, rec.clockInTime, rec.clockOutTime);
-                    row[emp.id] = {
-                        baseHours: baseHrs,
-                        overtimeHours: 0,
-                        offHours: 0,
-                        isRest: false,
-                        finalWorkHours: baseHrs,
-                        originalClockIn: rec.clockInTime,
-                        originalClockOut: rec.clockOutTime,
-                        baseStatus: baseStatus,
-                        hasRecord: true
-                    };
-                } else {
-                    row[emp.id] = {
-                        baseHours: 0,
-                        overtimeHours: 0,
-                        offHours: 0,
-                        isRest: true,
-                        finalWorkHours: 0,
-                        originalClockIn: null,
-                        originalClockOut: null,
-                        baseStatus: "rest",
-                        hasRecord: false
-                    };
-                }
-            }
-            grid.push(row);
-        }
-        attendanceGrid = grid;
-        recalcAllFinalHours();
-    }
-    
-    function initEmptyGrid() {
-        if (!employees.length) { attendanceGrid = []; return; }
-        let grid = [];
-        for (let iDate = 0; iDate < currentDates.length; iDate++) {
-            let row = {};
-            for (let emp of employees) {
-                row[emp.id] = {
-                    baseHours: 0,
-                    overtimeHours: 0,
-                    offHours: 0,
-                    isRest: true,
-                    finalWorkHours: 0,
-                    originalClockIn: null,
-                    originalClockOut: null,
-                    baseStatus: "rest",
-                    hasRecord: false
-                };
-            }
-            grid.push(row);
-        }
-        attendanceGrid = grid;
-        recalcAllFinalHours();
-    }
-    
-    function recalcAllFinalHours() {
-        if (!attendanceGrid.length) return;
-        for (let iDate = 0; iDate < currentDates.length; iDate++) {
-            for (let emp of employees) {
-                let cell = attendanceGrid[iDate]?.[emp.id];
-                if (!cell) continue;
-                let base = cell.baseHours || 0;
-                let overtime = cell.overtimeHours || 0;
-                let off = cell.offHours || 0;
-                let isRest = cell.isRest || false;
-                if (isRest) {
-                    cell.finalWorkHours = 0;
-                } else {
-                    let raw = base + overtime - off;
-                    cell.finalWorkHours = raw < 0 ? 0 : parseFloat(raw.toFixed(1));
-                }
-            }
-        }
-    }
-    
-    // 渲染表格（员工编号正序，无统计卡片）
-    function renderTable() {
-        if (!employees.length || !currentDates.length) {
-            document.getElementById('tableBody').innerHTML = '<tr><td colspan="20">暂无员工或日期，请先导入员工规则CSV或打卡记录</td></tr>';
-            return;
-        }
-        let sortedEmps = [...employees].sort((a,b) => (a.empNo || '').localeCompare(b.empNo || ''));
-        
-        // 表头
-        let theadHtml = '<tr><th>员工编号</th><th>员工姓名</th>';
-        for (let dt of currentDates) theadHtml += `<th>${dt.slice(5)}</th>`;
-        theadHtml += `<th>📌 合计出勤</th><th>⚡ 加班工时</th><th>🕒 调休工时</th><th>应出勤(手动)</th></tr>`;
-        document.getElementById('tableHeader').innerHTML = theadHtml;
-        
-        let tbodyHtml = '';
-        for (let emp of sortedEmps) {
-            let totalActual=0, totalOvertime=0, totalOff=0;
-            let rowCells = '';
-            for (let i=0; i<currentDates.length; i++) {
-                let cell = attendanceGrid[i]?.[emp.id];
-                if (cell) {
-                    let finalVal = cell.finalWorkHours ?? 0;
-                    totalActual += finalVal;
-                    totalOvertime += cell.overtimeHours || 0;
-                    totalOff += cell.offHours || 0;
-                    let finalStatus = computeFinalStatus(cell);
-                    let statusClass = '';
-                    switch(finalStatus) {
-                        case 'rest': statusClass = 'status-rest'; break;
-                        case 'work': statusClass = 'status-work'; break;
-                        case 'late': statusClass = 'status-late'; break;
-                        case 'early': statusClass = 'status-early'; break;
-                        case 'late_early': statusClass = 'status-late-early'; break;
-                        case 'overtime': statusClass = 'status-overtime'; break;
-                        case 'off': statusClass = 'status-off'; break;
-                        default: statusClass = 'status-miss';
-                    }
-                    let statusIcon = '';
-                    if (finalStatus === 'late') statusIcon = '🕘';
-                    else if (finalStatus === 'early') statusIcon = '🏃';
-                    else if (finalStatus === 'late_early') statusIcon = '⏰';
-                    else if (finalStatus === 'overtime') statusIcon = '➕';
-                    else if (finalStatus === 'off') statusIcon = '⏳';
-                    else if (finalStatus === 'rest') statusIcon = '🛌';
-                    let displayVal = finalVal.toFixed(1);
-                    rowCells += `<td class="editable-cell ${statusClass}" data-empid="${emp.id}" data-dateidx="${i}" data-basehours="${cell.baseHours}" data-overtime="${cell.overtimeHours}" data-offhours="${cell.offHours}" data-isrest="${cell.isRest}" data-clockin="${cell.originalClockIn || ''}" data-clockout="${cell.originalClockOut || ''}" data-basestatus="${cell.baseStatus}">${displayVal}<span class="status-badge">${statusIcon}</span></td>`;
-                } else {
-                    rowCells += `<td class="status-miss">—</td>`;
-                }
-            }
-            let expectedVal = manualExpectedHours[emp.id] !== undefined ? manualExpectedHours[emp.id] : '';
-            tbodyHtml += `<tr>
-                <td style="font-weight:600;">${emp.empNo || ''}</td>
-                <td style="font-weight:600;">${emp.name}<div class="employee-rule-tag">${emp.workStart} - ${emp.workEnd}</div></td>
-                ${rowCells}
-                <td><strong>${totalActual.toFixed(1)}</strong></td>
-                <td>${totalOvertime.toFixed(1)}</td>
-                <td>${totalOff.toFixed(1)}</td>
-                <td class="editable-expected" contenteditable="true" data-empid="${emp.id}" data-field="expected">${expectedVal}</td>
-            </tr>`;
-        }
-        
-        document.getElementById('tableBody').innerHTML = tbodyHtml;
-        
-        // 绑定应出勤单元格的编辑事件
-        attachExpectedEditEvents();
-        attachCellEvents();
-    }
-    
-    // 绑定应出勤手动编辑
-    function attachExpectedEditEvents() {
-        const expectedCells = document.querySelectorAll('.editable-expected');
-        expectedCells.forEach(cell => {
-            cell.removeEventListener('blur', expectedBlurHandler);
-            cell.addEventListener('blur', expectedBlurHandler);
-        });
-    }
-    function expectedBlurHandler(e) {
-        let cell = e.target;
-        let empId = parseInt(cell.dataset.empid);
-        let newVal = cell.innerText.trim();
-        let num = parseFloat(newVal);
-        if (!isNaN(num) && newVal !== '') {
-            manualExpectedHours[empId] = num;
-        } else {
-            manualExpectedHours[empId] = undefined;
-            cell.innerText = '';
-        }
-    }
-    
-    function attachCellEvents() {
-        document.querySelectorAll('#attendanceTable .editable-cell').forEach(cell => {
-            cell.removeEventListener('click', cellClickHandler);
-            cell.addEventListener('click', cellClickHandler);
-        });
-    }
-    
-    let activeModal = null;
-    function cellClickHandler(e) {
-        let cell = e.currentTarget;
-        let empId = parseInt(cell.dataset.empid);
-        let dateIdx = parseInt(cell.dataset.dateidx);
-        let emp = getEmpById(empId);
-        if (!emp) return;
-        let curCell = attendanceGrid[dateIdx]?.[empId];
-        if (!curCell) return;
-        let clockInInfo = cell.dataset.clockin || (curCell.originalClockIn || '无记录');
-        let clockOutInfo = cell.dataset.clockout || (curCell.originalClockOut || '无记录');
-        let baseStatusStr = cell.dataset.basestatus || curCell.baseStatus;
-        let statusText = '';
-        switch(baseStatusStr) {
-            case 'rest': statusText = '休息'; break;
-            case 'work': statusText = '正常'; break;
-            case 'late': statusText = '迟到'; break;
-            case 'early': statusText = '早退'; break;
-            case 'late_early': statusText = '迟到+早退'; break;
-            case 'off': statusText = '调休'; break;
-            case 'miss': statusText = '漏打卡'; break;
-            default: statusText = '未知';
-        }
-        showEditModal(emp, dateIdx, curCell, clockInInfo, clockOutInfo, statusText);
-    }
-    
-    function showEditModal(emp, dateIdx, cellData, clockInStr, clockOutStr, baseStatusText) {
-        if (activeModal) return;
-        let dateStr = currentDates[dateIdx];
-        let modalDiv = document.createElement('div');
-        modalDiv.className = 'modal-mask';
-        modalDiv.innerHTML = `
-            <div class="modal-card">
-                <h3>✏️ 逐日确认 · ${emp.name} (${dateStr})</h3>
-                <div class="form-row"><label>原始上班打卡</label><span>${clockInStr || '无'}</span></div>
-                <div class="form-row"><label>原始下班打卡</label><span>${clockOutStr || '无'}</span></div>
-                <div class="form-row"><label>规则比对状态</label><span>${baseStatusText}</span></div>
-                <div class="form-row"><label>基础工时(自动)</label><span>${cellData.baseHours.toFixed(1)} h</span></div>
-                <div class="form-row"><label>➕ 加班时长(h)</label><input type="number" step="0.5" id="otInput" value="${cellData.overtimeHours}" /></div>
-                <div class="form-row"><label>🕒 调休时长(h)</label><input type="number" step="0.5" id="offInput" value="${cellData.offHours}" /></div>
-                <div class="form-row"><label>🛌 全天休息</label><input type="checkbox" id="restChk" ${cellData.isRest ? 'checked' : ''} /></div>
-                <div class="form-row"><label>最终出勤工时</label><span id="finalPreview">0</span> h</div>
-                <div class="form-row"><label>最终状态</label><span id="statusPreview">-</span></div>
-                <div class="modal-buttons"><button class="btn" id="modalSaveBtn">保存</button><button class="btn" id="modalCancelBtn">取消</button></div>
-            </div>
-        `;
-        document.body.appendChild(modalDiv);
-        activeModal = modalDiv;
-        let otInp = modalDiv.querySelector('#otInput'), offInp = modalDiv.querySelector('#offInput'), restChk = modalDiv.querySelector('#restChk'), finalSpan = modalDiv.querySelector('#finalPreview'), statusSpan = modalDiv.querySelector('#statusPreview');
-        let updatePreview = () => {
-            let ot = parseFloat(otInp.value)||0, off = parseFloat(offInp.value)||0, rest = restChk.checked;
-            let final = rest ? 0 : (cellData.baseHours + ot - off);
-            if (final < 0) final = 0;
-            finalSpan.innerText = final.toFixed(1);
-            // 预览最终状态
-            let tmpStatus = rest ? '休息' : (off > 0 ? '调休' : (ot > 0 ? '加班' : baseStatusText));
-            statusSpan.innerText = tmpStatus;
-        };
-        otInp.addEventListener('input', updatePreview);
-        offInp.addEventListener('input', updatePreview);
-        restChk.addEventListener('change', updatePreview);
-        updatePreview();
-        modalDiv.querySelector('#modalSaveBtn').onclick = () => {
-            cellData.overtimeHours = parseFloat(otInp.value)||0;
-            cellData.offHours = parseFloat(offInp.value)||0;
-            cellData.isRest = restChk.checked;
-            recalcAllFinalHours();
-            renderTable();
-            modalDiv.remove(); activeModal = null;
-        };
-        modalDiv.querySelector('#modalCancelBtn').onclick = () => { modalDiv.remove(); activeModal = null; };
-    }
-    
-    // ========== 员工规则独立导入导出 + 查看 ==========
-    function exportEmployeeRuleCSV() {
-        if (employees.length === 0) { alert("暂无员工数据"); return; }
-        let headers = ["员工编号", "姓名", "上班时间", "下班时间"];
-        let rows = [headers];
-        for (let emp of employees) {
-            rows.push([emp.empNo || "", emp.name, emp.workStart, emp.workEnd]);
-        }
-        let csvContent = rows.map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
-        let blob = new Blob(["\uFEFF" + csvContent], {type: "text/csv;charset=utf-8;"});
-        let link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = "employee_rules.csv";
-        link.click();
-    }
-    
-    function downloadTemplate() {
-        let template = [["员工编号","姓名","上班时间","下班时间"],["1001","张三","09:00:00","18:00:00"],["1002","李四","08:30:00","17:30:00"]];
-        let csv = template.map(row => row.map(c => `"${c}"`).join(",")).join("\n");
-        let blob = new Blob(["\uFEFF" + csv], {type: "text/csv;charset=utf-8;"});
-        let link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = "employee_rule_template.csv";
-        link.click();
-    }
-    
-    function importEmployeeRuleCSV(file) {
-        let reader = new FileReader();
-        reader.onload = function(e) {
-            let data = e.target.result;
-            let workbook = XLSX.read(data, {type: 'string'});
-            let sheet = workbook.Sheets[workbook.SheetNames[0]];
-            let rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:""});
-            if (!rows || rows.length < 2) { alert("CSV无数据"); return; }
-            let headers = rows[0].map(cell => cell?.toString().trim() || "");
-            let idxNo = headers.findIndex(h => h.includes("员工编号") || h === "empNo");
-            let idxName = headers.findIndex(h => h.includes("姓名") || h === "name");
-            let idxStart = headers.findIndex(h => h.includes("上班时间") || h === "workStart");
-            let idxEnd = headers.findIndex(h => h.includes("下班时间") || h === "workEnd");
-            if (idxNo === -1 || idxName === -1) { alert("缺少必要列：员工编号、姓名"); return; }
-            let newEmployees = [];
-            let maxId = nextEmpId;
-            for (let i=1; i<rows.length; i++) {
-                let row = rows[i];
-                let empNo = row[idxNo]?.toString().trim();
-                let name = row[idxName]?.toString().trim();
-                if (!empNo || !name) continue;
-                let workStartRaw = idxStart !== -1 ? row[idxStart] : "09:00:00";
-                let workEndRaw = idxEnd !== -1 ? row[idxEnd] : "18:00:00";
-                let workStart = normalizeTimeToHMS(workStartRaw);
-                let workEnd = normalizeTimeToHMS(workEndRaw);
-                // dailyStdHours 仅用于比对迟到早退，不需要用于应出勤，保留计算即可
-                let std = timeToHour(workEnd) - timeToHour(workStart);
-                if (std < 0) std = 8;
-                let existEmp = employees.find(e => e.empNo === empNo);
-                let empId = existEmp ? existEmp.id : maxId++;
-                newEmployees.push({
-                    id: empId,
-                    empNo: empNo,
-                    name: name,
-                    workStart: workStart,
-                    workEnd: workEnd,
-                    dailyStdHours: std
-                });
-            }
-            if (newEmployees.length === 0) { alert("未解析到有效员工"); return; }
-            employees = newEmployees;
-            nextEmpId = Math.max(...employees.map(e=>e.id), nextEmpId) + 1;
-            // 重新映射打卡记录中的员工ID
-            let newRawRecords = [];
-            for (let rec of rawPunchRecords) {
-                let emp = employees.find(e => e.empNo === rec.empNoField || e.id === rec.empId);
-                if (emp) {
-                    newRawRecords.push({
-                        empId: emp.id,
-                        dateStr: rec.dateStr,
-                        clockInTime: rec.clockInTime,
-                        clockOutTime: rec.clockOutTime,
-                        baseHoursAuto: rec.baseHoursAuto,
-                        empNoField: emp.empNo
-                    });
-                }
-            }
-            rawPunchRecords = newRawRecords;
-            // 重置手动应出勤数据
-            manualExpectedHours = {};
-            if (currentDates.length) {
-                if (rawPunchRecords.length) rebuildGridFromRecords();
-                else initEmptyGrid();
-            }
-            renderTable();
-            alert(`员工规则导入成功！共 ${employees.length} 人`);
-        };
-        reader.readAsText(file, "UTF-8");
-    }
-    
-    function viewEmployeeRules() {
-        if (employees.length === 0) { alert("暂无员工规则数据，请先导入CSV"); return; }
-        let sorted = [...employees].sort((a,b) => (a.empNo || '').localeCompare(b.empNo || ''));
-        let html = `<table class="rule-table"><thead><tr><th>员工编号</th><th>姓名</th><th>上班时间</th><th>下班时间</th></tr></thead><tbody>`;
-        for (let emp of sorted) {
-            html += `<tr><td>${emp.empNo || ''}</td><td>${emp.name}</td><td>${emp.workStart}</td><td>${emp.workEnd}</td></tr>`;
-        }
-        html += `</tbody></table><div class="modal-buttons"><button class="btn" id="closeRuleViewBtn">关闭</button></div>`;
-        let modalDiv = document.createElement('div');
-        modalDiv.className = 'modal-mask';
-        modalDiv.innerHTML = `<div class="modal-card"><h3>📋 当前员工规则列表 (时间格式 HH:MM:SS)</h3>${html}</div>`;
-        document.body.appendChild(modalDiv);
-        modalDiv.querySelector('#closeRuleViewBtn').onclick = () => modalDiv.remove();
-    }
-    
-    // 导入打卡记录
-    function importExcelFile(file) {
-        let reader = new FileReader();
-        reader.onload = function(e) {
-            let data = new Uint8Array(e.target.result);
-            let workbook = XLSX.read(data, { type: 'array' });
-            let sheet = workbook.Sheets[workbook.SheetNames[0]];
-            let rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-            if (!rows || rows.length < 2) { alert("文件无数据"); return; }
-            let headers = rows[0].map(cell => cell?.toString().trim() || "");
-            let empNoIdx = headers.findIndex(h => h.includes("员工编号") || h.includes("工号"));
-            let nameIdx = headers.findIndex(h => h.includes("姓名"));
-            let dateIdx = headers.findIndex(h => h.includes("刷卡日期") || h.includes("日期"));
-            let timeIdx = headers.findIndex(h => h.includes("刷卡时间") || h.includes("时间"));
-            if (empNoIdx === -1 || nameIdx === -1 || dateIdx === -1 || timeIdx === -1) {
-                alert("请确保表格列包含: 员工编号, 姓名, 刷卡日期, 刷卡时间");
-                return;
-            }
-            let records = processRawImportToRecords(rows, { empNoIdx, nameIdx, dateIdx, timeIdx });
-            if (records.length === 0) { alert("未识别到有效打卡记录，请先导入员工规则使员工编号匹配"); return; }
-            rawPunchRecords = records;
-            let month = currentYearMonth || document.getElementById('monthSelector').value;
-            if (!month) { let now = new Date(); month = `${now.getFullYear()}-${(now.getMonth()+1).toString().padStart(2,'0')}`; }
-            currentYearMonth = month;
-            generateMonthDates(month);
-            rebuildGridFromRecords();
-            renderTable();
-            alert(`导入打卡记录成功！共 ${records.length} 人天记录`);
-        };
-        reader.readAsArrayBuffer(file);
-    }
-    
-    function exportStatsCSV() {
-        if (!employees.length || !currentDates.length) { alert("无数据可导出"); return; }
-        let sortedEmps = [...employees].sort((a,b)=>(a.empNo||'').localeCompare(b.empNo||''));
-        let csvRows = [];
-        let headers = ["员工编号","姓名", ...currentDates.map(d=>d.slice(5)), "合计出勤","加班汇总","调休汇总","应出勤(手动)"];
-        csvRows.push(headers.join(','));
-        for (let emp of sortedEmps) {
-            let row = [emp.empNo || "", emp.name];
-            let totalActual=0,totalOT=0,totalOff=0;
-            for (let i=0;i<currentDates.length;i++) {
-                let cell = attendanceGrid[i]?.[emp.id];
-                let val = cell ? cell.finalWorkHours : 0;
-                totalActual += val;
-                if(cell){ totalOT+=cell.overtimeHours||0; totalOff+=cell.offHours||0; }
-                row.push(val.toFixed(1));
-            }
-            let expected = manualExpectedHours[emp.id] !== undefined ? manualExpectedHours[emp.id] : '';
-            row.push(totalActual.toFixed(1), totalOT.toFixed(1), totalOff.toFixed(1), expected);
-            csvRows.push(row.map(c=>`"${c}"`).join(','));
-        }
-        let blob = new Blob(["\uFEFF"+csvRows.join("\n")], {type:"text/csv;charset=utf-8;"});
-        let a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = `考勤统计_${currentYearMonth}.csv`;
-        a.click();
-    }
-    
-    function initDemo() {
-        employees = [
-            { id: 1, empNo: "1001", name: "张敏", workStart: "08:30:00", workEnd: "17:30:00", dailyStdHours: 9 },
-            { id: 2, empNo: "1002", name: "李芳", workStart: "09:00:00", workEnd: "18:00:00", dailyStdHours: 9 },
-            { id: 3, empNo: "1003", name: "王磊", workStart: "08:30:00", workEnd: "17:30:00", dailyStdHours: 9 }
-        ];
-        nextEmpId = 4;
-        let now = new Date();
+	// ---------- 全局数据 ----------
+	let employees = [];          // { id, empNo, name, workStart, workEnd, dailyStdHours (仅用于迟到早退比对) }
+	let rawPunchRecords = [];    // { empId, dateStr, clockInTime, clockOutTime, baseHoursAuto }
+	let attendanceGrid = [];     // 按 [日期索引][员工id] 存储
+	let currentDates = [];
+	let currentYearMonth = "";
+	let nextEmpId = 100;
+	let manualExpectedHours = {}; // 存储每个员工的手动应出勤工时，key: empId
+	
+	// 特殊员工姓名（双人顶班规则）
+	const SPECIAL_PAIR_NAMES = ["王元琴", "龚晓燕"];
+	
+	// ================= 时间处理辅助函数 =================
+	function timeStrToMinutes(t) {
+		if (!t) return 0;
+		let parts = t.split(':');
+		let h = parseInt(parts[0]) || 0;
+		let m = parseInt(parts[1]) || 0;
+		let s = parseInt(parts[2]) || 0;
+		return h * 60 + m + s/60;
+	}
+	function minutesToTimeStr(minutes) {
+		let sign = minutes < 0 ? -1 : 1;
+		minutes = Math.abs(minutes);
+		let h = Math.floor(minutes / 60);
+		let m = Math.floor(minutes % 60);
+		let s = Math.round((minutes - Math.floor(minutes)) * 60);
+		if (s === 60) { m++; s = 0; }
+		if (m === 60) { h++; m = 0; }
+		return `${(h*sign).toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+	}
+	function excelTimeToHHMMSS(num) {
+		if (typeof num !== 'number') return num;
+		let totalSeconds = Math.floor(num * 86400);
+		let hours = Math.floor(totalSeconds / 3600);
+		let minutes = Math.floor((totalSeconds % 3600) / 60);
+		let seconds = totalSeconds % 60;
+		return `${hours.toString().padStart(2,'0')}:${minutes.toString().padStart(2,'0')}:${seconds.toString().padStart(2,'0')}`;
+	}
+	function normalizeTimeToHMS(timeVal) {
+		if (!timeVal && timeVal !== 0) return "09:00:00";
+		if (typeof timeVal === 'number') return excelTimeToHHMMSS(timeVal);
+		let str = String(timeVal).trim();
+		if (/^\d{1,2}:\d{2}:\d{2}$/.test(str)) return str.padStart(8, '0');
+		if (/^\d{1,2}:\d{2}$/.test(str)) {
+			let parts = str.split(':');
+			return `${parts[0].padStart(2,'0')}:${parts[1]}:00`;
+		}
+		return "09:00:00";
+	}
+	function timeToHour(timeStr) {
+		if (!timeStr) return 0;
+		let parts = timeStr.split(':');
+		let h = parseInt(parts[0]);
+		let m = parseInt(parts[1]) || 0;
+		let s = parseInt(parts[2]) || 0;
+		return h + m/60 + s/3600;
+	}
+	// 向上取整到半点 (09:12 -> 09:30 ; 09:31 -> 10:00)
+	function roundUpToHalfHour(timeStr) {
+		let minutes = timeStrToMinutes(timeStr);
+		let remainder = minutes % 30;
+		if (remainder === 0) return timeStr;
+		let upMinutes = minutes + (30 - remainder);
+		return minutesToTimeStr(upMinutes);
+	}
+	// 向下取整到半点 (18:28 -> 18:00 ; 18:45 -> 18:30)
+	function roundDownToHalfHour(timeStr) {
+		let minutes = timeStrToMinutes(timeStr);
+		let downMinutes = Math.floor(minutes / 30) * 30;
+		return minutesToTimeStr(downMinutes);
+	}
+	// 核心: 根据员工上下班规则 + 实际打卡，计算有效工时(小时)
+	function computeEffectiveWorkHours(clockIn, clockOut, workStart, workEnd) {
+		if (!clockIn || !clockOut) return 0;
+		// 有效上班时间: max(规定上班时间, 向上取整至半点(实际上班))
+		let effectiveStartRaw = roundUpToHalfHour(clockIn);
+		let startBound = workStart;
+		let effectiveStart = (timeStrToMinutes(effectiveStartRaw) > timeStrToMinutes(startBound)) ? effectiveStartRaw : startBound;
+		// 有效下班时间:
+		let effectiveEnd;
+		let actualEndMinutes = timeStrToMinutes(clockOut);
+		let ruleEndMinutes = timeStrToMinutes(workEnd);
+		if (actualEndMinutes > ruleEndMinutes) {
+			// 加班: 只计算到规定下班时间
+			effectiveEnd = workEnd;
+		} else {
+			// 早退或准时: 向下取整到半点
+			effectiveEnd = roundDownToHalfHour(clockOut);
+		}
+		let startM = timeStrToMinutes(effectiveStart);
+		let endM = timeStrToMinutes(effectiveEnd);
+		let workMins = Math.max(0, endM - startM);
+		return Math.round(workMins / 60 * 10) / 10;
+	}
+	
+	function getEmpById(eid) {
+		return employees.find(e => e.id === eid);
+	}
+	
+	// 生成当月日期
+	function generateMonthDates(yearMonth) {
+		let [year, month] = yearMonth.split('-').map(Number);
+		let date = new Date(year, month, 0);
+		let days = date.getDate();
+		let dates = [];
+		for (let i = 1; i <= days; i++) {
+			let d = new Date(year, month-1, i);
+			let y = d.getFullYear();
+			let m = (d.getMonth()+1).toString().padStart(2,'0');
+			let day = i.toString().padStart(2,'0');
+			dates.push(`${y}-${m}-${day}`);
+		}
+		currentDates = dates;
+	}
+	
+	// 根据规则和实际打卡时间，计算基础状态 (迟到/早退基于实际打卡，与原逻辑一致)
+	function computeBaseStatus(emp, clockIn, clockOut) {
+		if (!clockIn || !clockOut) return "miss";
+		const ruleStart = emp.workStart;
+		const ruleEnd = emp.workEnd;
+		const isLate = timeToHour(clockIn) > timeToHour(ruleStart);
+		const isEarly = timeToHour(clockOut) < timeToHour(ruleEnd);
+		if (isLate && isEarly) return "late_early";
+		if (isLate) return "late";
+		if (isEarly) return "early";
+		return "work";
+	}
+	
+	// 最终状态（优先级：休息 > 调休 > 加班 > 基础状态）
+	function computeFinalStatus(cell) {
+		if (cell.isRest) return "rest";
+		if (cell.offHours && cell.offHours > 0) return "off";
+		if (cell.overtimeHours && cell.overtimeHours > 0) return "overtime";
+		return cell.baseStatus;
+	}
+	
+	// 根据员工规则重新计算所有打卡记录的基础工时 (员工规则变更后调用)
+	function recalcAllRecordsBaseHours() {
+		for (let rec of rawPunchRecords) {
+			let emp = getEmpById(rec.empId);
+			if (emp && rec.clockInTime && rec.clockOutTime) {
+				rec.baseHoursAuto = computeEffectiveWorkHours(rec.clockInTime, rec.clockOutTime, emp.workStart, emp.workEnd);
+			} else {
+				rec.baseHoursAuto = 0;
+			}
+		}
+	}
+	
+	// 从原始打卡记录构建 rawPunchRecords，同时使用新工时计算
+	function processRawImportToRecords(rows, headerMap) {
+		let dailyMap = new Map();
+		for (let i = 1; i < rows.length; i++) {
+			let row = rows[i];
+			let empNo = row[headerMap.empNoIdx]?.toString().trim();
+			let name = row[headerMap.nameIdx]?.toString().trim();
+			let dateRaw = row[headerMap.dateIdx];
+			let timeRaw = row[headerMap.timeIdx];
+			if (!empNo || !name || !dateRaw) continue;
+			let dateStr = null;
+			if (dateRaw) {
+				let d = new Date(dateRaw);
+				if (!isNaN(d.getTime())) dateStr = d.toISOString().slice(0,10);
+				else dateStr = dateRaw.toString().slice(0,10);
+			}
+			if (!dateStr) continue;
+			let timeStr = null;
+			if (timeRaw) {
+				let t = timeRaw.toString().trim();
+				if (t.match(/\d{1,2}:\d{2}/)) timeStr = normalizeTimeToHMS(t);
+				else if (typeof timeRaw === 'number') timeStr = excelTimeToHHMMSS(timeRaw);
+				else timeStr = normalizeTimeToHMS(t);
+			}
+			if (!timeStr) continue;
+			let key = `${empNo}_${dateStr}`;
+			if (!dailyMap.has(key)) {
+				dailyMap.set(key, { empNo, name, dateStr, times: [] });
+			}
+			dailyMap.get(key).times.push(timeStr);
+		}
+		let records = [];
+		for (let item of dailyMap.values()) {
+			let times = item.times;
+			if (times.length === 0) continue;
+			times.sort((a,b) => timeToHour(a) - timeToHour(b));
+			let clockIn = times[0];
+			let clockOut = times[times.length-1];
+			let emp = employees.find(e => e.empNo === item.empNo);
+			if (!emp) continue;
+			// 使用新工时计算函数
+			let workHours = computeEffectiveWorkHours(clockIn, clockOut, emp.workStart, emp.workEnd);
+			records.push({
+				empId: emp.id,
+				dateStr: item.dateStr,
+				clockInTime: clockIn,
+				clockOutTime: clockOut,
+				baseHoursAuto: workHours,
+				empNoField: emp.empNo
+			});
+		}
+		return records;
+	}
+	
+	// ⭐⭐⭐ 双人顶班特殊规则核心逻辑 ⭐⭐⭐
+	// 遍历当前网格，对特殊两人应用规则：若两人都出勤则不变；仅一人出勤则强制该人工时10h、状态正常
+	function applySpecialPairRule() {
+		if (!employees.length || !attendanceGrid.length) return;
+		// 获取特殊员工的ID列表
+		const specialEmpIds = employees.filter(emp => SPECIAL_PAIR_NAMES.includes(emp.name)).map(emp => emp.id);
+		if (specialEmpIds.length !== 2) {
+			// 如果员工表中没有同时包含王元琴和龚晓燕，则不执行规则
+			return;
+		}
+		const [idA, idB] = specialEmpIds;
+		
+		for (let dayIdx = 0; dayIdx < currentDates.length; dayIdx++) {
+			const cellA = attendanceGrid[dayIdx]?.[idA];
+			const cellB = attendanceGrid[dayIdx]?.[idB];
+			if (!cellA || !cellB) continue;
+			
+			// 判断两人是否“出勤”：hasRecord为true且未被手动设为全天休息
+			const isWorkA = cellA.hasRecord === true && !cellA.isRest;
+			const isWorkB = cellB.hasRecord === true && !cellB.isRest;
+			
+			if (isWorkA && isWorkB) {
+				// 两人都上班：各自保留原有规则，不做额外处理（但需要确保他们的baseHours已经基于个人规则正确）
+				// 注意：不要覆盖之前已经正确的工时
+				continue;
+			}
+			else if (isWorkA && !isWorkB) {
+				// 只有A上班，B未上班 → A顶班：07:30-17:30，工时10h，状态强制为正常
+				applyFullShiftOverride(cellA, "07:30:00", "17:30:00");
+			}
+			else if (!isWorkA && isWorkB) {
+				// 只有B上班，A未上班 → B顶班
+				applyFullShiftOverride(cellB, "07:30:00", "17:30:00");
+			}
+			// 两人都不上班，不做任何处理
+		}
+		// 重新计算最终工时（加班调休等需重新整合）
+		recalcAllFinalHours();
+	}
+	
+	// 覆盖单元格为基础工时、基础状态，并重置加班调休为0？为了保留用户手动调整，我们只覆盖baseHours和baseStatus，不清除已有的加班/调休，但建议同时将加班调休清零？不，用户可能已手动设置，应保留。但为了避免冲突，仅覆盖基础部分。
+	function applyFullShiftOverride(cell, overrideStart, overrideEnd) {
+		// 必须存在原始打卡记录才可重新计算
+		if (cell.originalClockIn && cell.originalClockOut) {
+			let newBase = computeEffectiveWorkHours(cell.originalClockIn, cell.originalClockOut, overrideStart, overrideEnd);
+			cell.baseHours = newBase;
+		} else {
+			// 理论上不会走到这里（有 hasRecord 一定有打卡时间）
+			cell.baseHours = 0;
+		}
+		// 顶班时基础状态强制为正常（不显示迟到早退）
+		cell.baseStatus = "work";
+		// 注意：不清空 overtimeHours 和 offHours，保留用户可能的手动调整
+	}
+	
+	// 重建考勤网格
+	function rebuildGridFromRecords() {
+		if (!employees.length) {
+			attendanceGrid = [];
+			return;
+		}
+		if (!currentDates.length) generateMonthDates(currentYearMonth);
+		let monthRecords = rawPunchRecords.filter(r => r.dateStr.startsWith(currentYearMonth));
+		let grid = [];
+		for (let iDate = 0; iDate < currentDates.length; iDate++) {
+			let row = {};
+			for (let emp of employees) {
+				let rec = monthRecords.find(r => r.empId === emp.id && r.dateStr === currentDates[iDate]);
+				if (rec) {
+					let baseHrs = rec.baseHoursAuto;
+					let baseStatus = computeBaseStatus(emp, rec.clockInTime, rec.clockOutTime);
+					row[emp.id] = {
+						baseHours: baseHrs,
+						overtimeHours: 0,
+						offHours: 0,
+						isRest: false,
+						finalWorkHours: baseHrs,
+						originalClockIn: rec.clockInTime,
+						originalClockOut: rec.clockOutTime,
+						baseStatus: baseStatus,
+						hasRecord: true
+					};
+				} else {
+					row[emp.id] = {
+						baseHours: 0,
+						overtimeHours: 0,
+						offHours: 0,
+						isRest: true,
+						finalWorkHours: 0,
+						originalClockIn: null,
+						originalClockOut: null,
+						baseStatus: "rest",
+						hasRecord: false
+					};
+				}
+			}
+			grid.push(row);
+		}
+		attendanceGrid = grid;
+		// 先应用常规最终工时计算（基础状态）
+		recalcAllFinalHours();
+		// 再应用特殊双人顶班规则（会修改baseHours和baseStatus并重新计算最终工时）
+		applySpecialPairRule();
+	}
+	
+	function initEmptyGrid() {
+		if (!employees.length) { attendanceGrid = []; return; }
+		let grid = [];
+		for (let iDate = 0; iDate < currentDates.length; iDate++) {
+			let row = {};
+			for (let emp of employees) {
+				row[emp.id] = {
+					baseHours: 0,
+					overtimeHours: 0,
+					offHours: 0,
+					isRest: true,
+					finalWorkHours: 0,
+					originalClockIn: null,
+					originalClockOut: null,
+					baseStatus: "rest",
+					hasRecord: false
+				};
+			}
+			grid.push(row);
+		}
+		attendanceGrid = grid;
+		recalcAllFinalHours();
+		applySpecialPairRule(); // 虽然无打卡，但以防万一
+	}
+	
+	function recalcAllFinalHours() {
+		if (!attendanceGrid.length) return;
+		for (let iDate = 0; iDate < currentDates.length; iDate++) {
+			for (let emp of employees) {
+				let cell = attendanceGrid[iDate]?.[emp.id];
+				if (!cell) continue;
+				let base = cell.baseHours || 0;
+				let overtime = cell.overtimeHours || 0;
+				let off = cell.offHours || 0;
+				let isRest = cell.isRest || false;
+				if (isRest) {
+					cell.finalWorkHours = 0;
+				} else {
+					let raw = base + overtime - off;
+					cell.finalWorkHours = raw < 0 ? 0 : parseFloat(raw.toFixed(1));
+				}
+			}
+		}
+	}
+	
+	// 渲染表格（员工编号正序，无统计卡片，支持双人顶班标识）
+	function renderTable() {
+		if (!employees.length || !currentDates.length) {
+			document.getElementById('tableBody').innerHTML = '<tr><td colspan="20">暂无员工或日期，请先导入员工规则CSV或打卡记录</td></tr>';
+			return;
+		}
+		let sortedEmps = [...employees].sort((a,b) => (a.empNo || '').localeCompare(b.empNo || ''));
+		
+		// 表头
+		let theadHtml = '<tr><th>员工编号</th><th>员工姓名</th>';
+		for (let dt of currentDates) theadHtml += `<th>${dt.slice(5)}</th>`;
+		theadHtml += `<th>📌 合计出勤</th><th>⚡ 加班工时</th><th>🕒 调休工时</th><th>应出勤(手动)</th></table>`;
+		document.getElementById('tableHeader').innerHTML = theadHtml;
+		
+		let tbodyHtml = '';
+		for (let emp of sortedEmps) {
+			let totalActual=0, totalOvertime=0, totalOff=0;
+			let rowCells = '';
+			for (let i=0; i<currentDates.length; i++) {
+				let cell = attendanceGrid[i]?.[emp.id];
+				if (cell) {
+					let finalVal = cell.finalWorkHours ?? 0;
+					totalActual += finalVal;
+					totalOvertime += cell.overtimeHours || 0;
+					totalOff += cell.offHours || 0;
+					let finalStatus = computeFinalStatus(cell);
+					let statusClass = '';
+					switch(finalStatus) {
+						case 'rest': statusClass = 'status-rest'; break;
+						case 'work': statusClass = 'status-work'; break;
+						case 'late': statusClass = 'status-late'; break;
+						case 'early': statusClass = 'status-early'; break;
+						case 'late_early': statusClass = 'status-late-early'; break;
+						case 'overtime': statusClass = 'status-overtime'; break;
+						case 'off': statusClass = 'status-off'; break;
+						default: statusClass = 'status-miss';
+					}
+					let statusIcon = '';
+					if (finalStatus === 'late') statusIcon = '🕘';
+					else if (finalStatus === 'early') statusIcon = '🏃';
+					else if (finalStatus === 'late_early') statusIcon = '⏰';
+					else if (finalStatus === 'overtime') statusIcon = '➕';
+					else if (finalStatus === 'off') statusIcon = '⏳';
+					else if (finalStatus === 'rest') statusIcon = '🛌';
+					let displayVal = finalVal.toFixed(1);
+					rowCells += `<td class="editable-cell ${statusClass}" data-empid="${emp.id}" data-dateidx="${i}" data-basehours="${cell.baseHours}" data-overtime="${cell.overtimeHours}" data-offhours="${cell.offHours}" data-isrest="${cell.isRest}" data-clockin="${cell.originalClockIn || ''}" data-clockout="${cell.originalClockOut || ''}" data-basestatus="${cell.baseStatus}">${displayVal}<span class="status-badge">${statusIcon}</span>`;
+					// 如果是特殊员工且当天可能被顶班规则覆盖，添加小标记（可选）
+					if (SPECIAL_PAIR_NAMES.includes(emp.name) && cell.baseHours === 10.0 && cell.baseStatus === 'work' && cell.hasRecord && !cell.isRest) {
+						rowCells += `<span style="font-size:9px; margin-left:4px;" title="顶班规则">🤝</span>`;
+					}
+					rowCells += `</td>`;
+				} else {
+					rowCells += `<td class="status-miss">—</td>`;
+				}
+			}
+			let expectedVal = manualExpectedHours[emp.id] !== undefined ? manualExpectedHours[emp.id] : '';
+			tbodyHtml += `<tr>
+				<td style="font-weight:600;">${emp.empNo || ''}</td>
+				<td style="font-weight:600;">${emp.name}${SPECIAL_PAIR_NAMES.includes(emp.name) ? '<span class="special-badge">🤝顶班规则</span>' : ''}<div class="employee-rule-tag">${emp.workStart} - ${emp.workEnd}</div></td>
+				${rowCells}
+				<td><strong>${totalActual.toFixed(1)}</strong></td>
+				<td>${totalOvertime.toFixed(1)}</td>
+				<td>${totalOff.toFixed(1)}</td>
+				<td class="editable-expected" contenteditable="true" data-empid="${emp.id}" data-field="expected">${expectedVal}</td>
+			</tr>`;
+		}
+		
+		document.getElementById('tableBody').innerHTML = tbodyHtml;
+		
+		// 绑定应出勤单元格的编辑事件
+		attachExpectedEditEvents();
+		attachCellEvents();
+	}
+	
+	// 绑定应出勤手动编辑
+	function attachExpectedEditEvents() {
+		const expectedCells = document.querySelectorAll('.editable-expected');
+		expectedCells.forEach(cell => {
+			cell.removeEventListener('blur', expectedBlurHandler);
+			cell.addEventListener('blur', expectedBlurHandler);
+		});
+	}
+	function expectedBlurHandler(e) {
+		let cell = e.target;
+		let empId = parseInt(cell.dataset.empid);
+		let newVal = cell.innerText.trim();
+		let num = parseFloat(newVal);
+		if (!isNaN(num) && newVal !== '') {
+			manualExpectedHours[empId] = num;
+		} else {
+			manualExpectedHours[empId] = undefined;
+			cell.innerText = '';
+		}
+	}
+	
+	function attachCellEvents() {
+		document.querySelectorAll('#attendanceTable .editable-cell').forEach(cell => {
+			cell.removeEventListener('click', cellClickHandler);
+			cell.addEventListener('click', cellClickHandler);
+		});
+	}
+	
+	let activeModal = null;
+	function cellClickHandler(e) {
+		let cell = e.currentTarget;
+		let empId = parseInt(cell.dataset.empid);
+		let dateIdx = parseInt(cell.dataset.dateidx);
+		let emp = getEmpById(empId);
+		if (!emp) return;
+		let curCell = attendanceGrid[dateIdx]?.[empId];
+		if (!curCell) return;
+		let clockInInfo = cell.dataset.clockin || (curCell.originalClockIn || '无记录');
+		let clockOutInfo = cell.dataset.clockout || (curCell.originalClockOut || '无记录');
+		let baseStatusStr = cell.dataset.basestatus || curCell.baseStatus;
+		let statusText = '';
+		switch(baseStatusStr) {
+			case 'rest': statusText = '休息'; break;
+			case 'work': statusText = '正常'; break;
+			case 'late': statusText = '迟到'; break;
+			case 'early': statusText = '早退'; break;
+			case 'late_early': statusText = '迟到+早退'; break;
+			case 'off': statusText = '调休'; break;
+			case 'miss': statusText = '漏打卡'; break;
+			default: statusText = '未知';
+		}
+		showEditModal(emp, dateIdx, curCell, clockInInfo, clockOutInfo, statusText);
+	}
+	
+	function showEditModal(emp, dateIdx, cellData, clockInStr, clockOutStr, baseStatusText) {
+		if (activeModal) return;
+		let dateStr = currentDates[dateIdx];
+		let modalDiv = document.createElement('div');
+		modalDiv.className = 'modal-mask';
+		modalDiv.innerHTML = `
+			<div class="modal-card">
+				<h3>✏️ 逐日确认 · ${emp.name} (${dateStr})</h3>
+				<table class="rule-table"><thead><tr><th>项目</th><th>内容</th></tr></thead><tbody>
+					<tr><td>原始上班打卡</td><td>${clockInStr || '无'}</td></tr>
+					<tr><td>原始下班打卡</td><td>${clockOutStr || '无'}</td></tr>
+					<tr><td>规则比对状态</td><td>${baseStatusText}</td></tr>
+					<tr><td>✅ 有效基础工时(新算法)</td><td>${cellData.baseHours.toFixed(1)} h</td></tr>
+					<tr><td>➕ 加班时长(h)</td><td><input type="number" step="0.5" id="otInput" value="${cellData.overtimeHours}" style="width: 60%;" /></td></tr>
+					<tr><td>🕒 调休时长(h)</td><td><input type="number" step="0.5" id="offInput" value="${cellData.offHours}" style="width: 60%;" /></td></tr>
+					<tr><td>🛌 全天休息</td><td><input type="checkbox" id="restChk" ${cellData.isRest ? 'checked' : ''} /></td></tr>
+					<tr><td>最终出勤工时</td><td><span id="finalPreview">0</span> h</td></tr>
+					<tr><td>最终状态</td><td><span id="statusPreview">-</span></td></tr>
+				</tbody></table>
+				<div class="modal-buttons">
+					<button class="btn" id="modalSaveBtn">保存</button>
+					<button class="btn" id="modalCancelBtn">取消</button>
+				</div>
+			</div>
+		`;
+		document.body.appendChild(modalDiv);
+		activeModal = modalDiv;
+		let otInp = modalDiv.querySelector('#otInput'), offInp = modalDiv.querySelector('#offInput'), restChk = modalDiv.querySelector('#restChk'), finalSpan = modalDiv.querySelector('#finalPreview'), statusSpan = modalDiv.querySelector('#statusPreview');
+		let updatePreview = () => {
+			let ot = parseFloat(otInp.value)||0, off = parseFloat(offInp.value)||0, rest = restChk.checked;
+			let final = rest ? 0 : (cellData.baseHours + ot - off);
+			if (final < 0) final = 0;
+			finalSpan.innerText = final.toFixed(1);
+			// 预览最终状态
+			let tmpStatus = rest ? '休息' : (off > 0 ? '调休' : (ot > 0 ? '加班' : baseStatusText));
+			statusSpan.innerText = tmpStatus;
+		};
+		otInp.addEventListener('input', updatePreview);
+		offInp.addEventListener('input', updatePreview);
+		restChk.addEventListener('change', updatePreview);
+		updatePreview();
+		modalDiv.querySelector('#modalSaveBtn').onclick = () => {
+			cellData.overtimeHours = parseFloat(otInp.value)||0;
+			cellData.offHours = parseFloat(offInp.value)||0;
+			cellData.isRest = restChk.checked;
+			recalcAllFinalHours();
+			renderTable();
+			modalDiv.remove(); activeModal = null;
+		};
+		modalDiv.querySelector('#modalCancelBtn').onclick = () => { modalDiv.remove(); activeModal = null; };
+	}
+	
+	// ========== 员工规则独立导入导出 + 查看 ==========
+	function exportEmployeeRuleCSV() {
+		if (employees.length === 0) { alert("暂无员工数据"); return; }
+		let headers = ["员工编号", "姓名", "上班时间", "下班时间"];
+		let rows = [headers];
+		for (let emp of employees) {
+			rows.push([emp.empNo || "", emp.name, emp.workStart, emp.workEnd]);
+		}
+		let csvContent = rows.map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
+		let blob = new Blob(["\uFEFF" + csvContent], {type: "text/csv;charset=utf-8;"});
+		let link = document.createElement('a');
+		link.href = URL.createObjectURL(blob);
+		link.download = "employee_rules.csv";
+		link.click();
+	}
+	
+	function downloadTemplate() {
+		let template = [["员工编号","姓名","上班时间","下班时间"],["1001","张三","09:00:00","18:00:00"],["1002","李四","08:30:00","17:30:00"],["1003","王元琴","07:30:00","16:30:00"],["1004","龚晓燕","08:30:00","17:30:00"]];
+		let csv = template.map(row => row.map(c => `"${c}"`).join(",")).join("\n");
+		let blob = new Blob(["\uFEFF" + csv], {type: "text/csv;charset=utf-8;"});
+		let link = document.createElement('a');
+		link.href = URL.createObjectURL(blob);
+		link.download = "employee_rule_template.csv";
+		link.click();
+	}
+	
+	function importEmployeeRuleCSV(file) {
+		let reader = new FileReader();
+		reader.onload = function(e) {
+			let data = e.target.result;
+			let workbook = XLSX.read(data, {type: 'string'});
+			let sheet = workbook.Sheets[workbook.SheetNames[0]];
+			let rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:""});
+			if (!rows || rows.length < 2) { alert("CSV无数据"); return; }
+			let headers = rows[0].map(cell => cell?.toString().trim() || "");
+			let idxNo = headers.findIndex(h => h.includes("员工编号") || h === "empNo");
+			let idxName = headers.findIndex(h => h.includes("姓名") || h === "name");
+			let idxStart = headers.findIndex(h => h.includes("上班时间") || h === "workStart");
+			let idxEnd = headers.findIndex(h => h.includes("下班时间") || h === "workEnd");
+			if (idxNo === -1 || idxName === -1) { alert("缺少必要列：员工编号、姓名"); return; }
+			let newEmployees = [];
+			let maxId = nextEmpId;
+			for (let i=1; i<rows.length; i++) {
+				let row = rows[i];
+				let empNo = row[idxNo]?.toString().trim();
+				let name = row[idxName]?.toString().trim();
+				if (!empNo || !name) continue;
+				let workStartRaw = idxStart !== -1 ? row[idxStart] : "09:00:00";
+				let workEndRaw = idxEnd !== -1 ? row[idxEnd] : "18:00:00";
+				let workStart = normalizeTimeToHMS(workStartRaw);
+				let workEnd = normalizeTimeToHMS(workEndRaw);
+				let std = timeToHour(workEnd) - timeToHour(workStart);
+				if (std < 0) std = 8;
+				let existEmp = employees.find(e => e.empNo === empNo);
+				let empId = existEmp ? existEmp.id : maxId++;
+				newEmployees.push({
+					id: empId,
+					empNo: empNo,
+					name: name,
+					workStart: workStart,
+					workEnd: workEnd,
+					dailyStdHours: std
+				});
+			}
+			if (newEmployees.length === 0) { alert("未解析到有效员工"); return; }
+			employees = newEmployees;
+			nextEmpId = Math.max(...employees.map(e=>e.id), nextEmpId) + 1;
+			// 重新映射打卡记录中员工ID 并 重新计算所有打卡的基础工时（因为上下班规则可能变了）
+			let newRawRecords = [];
+			for (let rec of rawPunchRecords) {
+				let emp = employees.find(e => e.empNo === rec.empNoField || e.id === rec.empId);
+				if (emp) {
+					let newBase = computeEffectiveWorkHours(rec.clockInTime, rec.clockOutTime, emp.workStart, emp.workEnd);
+					newRawRecords.push({
+						empId: emp.id,
+						dateStr: rec.dateStr,
+						clockInTime: rec.clockInTime,
+						clockOutTime: rec.clockOutTime,
+						baseHoursAuto: newBase,
+						empNoField: emp.empNo
+					});
+				}
+			}
+			rawPunchRecords = newRawRecords;
+			// 重置手动应出勤数据
+			manualExpectedHours = {};
+			if (currentDates.length) {
+				if (rawPunchRecords.length) rebuildGridFromRecords();
+				else initEmptyGrid();
+			}
+			renderTable();
+			alert(`员工规则导入成功！共 ${employees.length} 人，双人顶班规则已就绪。`);
+		};
+		reader.readAsText(file, "UTF-8");
+	}
+	
+	function viewEmployeeRules() {
+		if (employees.length === 0) { alert("暂无员工规则数据，请先导入CSV"); return; }
+		let sorted = [...employees].sort((a,b) => (a.empNo || '').localeCompare(b.empNo || ''));
+		let html = `<table class="rule-table"><thead><tr><th>员工编号</th><th>姓名</th><th>上班时间</th><th>下班时间</th></tr></thead><tbody>`;
+		for (let emp of sorted) {
+			html += `<tr><td>${emp.empNo || ''}</td><td>${emp.name}${SPECIAL_PAIR_NAMES.includes(emp.name) ? ' 🤝' : ''}</td><td>${emp.workStart}</td><td>${emp.workEnd}</td></tr>`;
+		}
+		html += `</tbody></table><div class="modal-buttons"><button class="btn" id="closeRuleViewBtn">关闭</button></div>`;
+		let modalDiv = document.createElement('div');
+		modalDiv.className = 'modal-mask';
+		modalDiv.innerHTML = `<div class="modal-card"><h3>📋 当前员工规则列表 (时间格式 HH:MM:SS)</h3>${html}</div>`;
+		document.body.appendChild(modalDiv);
+		modalDiv.querySelector('#closeRuleViewBtn').onclick = () => modalDiv.remove();
+	}
+	
+	// 导入打卡记录
+	function importExcelFile(file) {
+		let reader = new FileReader();
+		reader.onload = function(e) {
+			let data = new Uint8Array(e.target.result);
+			let workbook = XLSX.read(data, { type: 'array' });
+			let sheet = workbook.Sheets[workbook.SheetNames[0]];
+			let rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+			if (!rows || rows.length < 2) { alert("文件无数据"); return; }
+			let headers = rows[0].map(cell => cell?.toString().trim() || "");
+			let empNoIdx = headers.findIndex(h => h.includes("员工编号") || h.includes("工号"));
+			let nameIdx = headers.findIndex(h => h.includes("姓名"));
+			let dateIdx = headers.findIndex(h => h.includes("刷卡日期") || h.includes("日期"));
+			let timeIdx = headers.findIndex(h => h.includes("刷卡时间") || h.includes("时间"));
+			if (empNoIdx === -1 || nameIdx === -1 || dateIdx === -1 || timeIdx === -1) {
+				alert("请确保表格列包含: 员工编号, 姓名, 刷卡日期, 刷卡时间");
+				return;
+			}
+			let records = processRawImportToRecords(rows, { empNoIdx, nameIdx, dateIdx, timeIdx });
+			if (records.length === 0) { alert("未识别到有效打卡记录，请先导入员工规则使员工编号匹配"); return; }
+			rawPunchRecords = records;
+			let month = currentYearMonth || document.getElementById('monthSelector').value;
+			if (!month) { let now = new Date(); month = `${now.getFullYear()}-${(now.getMonth()+1).toString().padStart(2,'0')}`; }
+			currentYearMonth = month;
+			generateMonthDates(month);
+			rebuildGridFromRecords();
+			renderTable();
+			alert(`导入打卡记录成功！共 ${records.length} 人天记录 (双人顶班规则已自动应用)`);
+		};
+		reader.readAsArrayBuffer(file);
+	}
+	
+	function exportStatsCSV() {
+		if (!employees.length || !currentDates.length) { alert("无数据可导出"); return; }
+		let sortedEmps = [...employees].sort((a,b)=>(a.empNo||'').localeCompare(b.empNo||''));
+		let csvRows = [];
+		let headers = ["员工编号","姓名", ...currentDates.map(d=>d.slice(5)), "合计出勤","加班汇总","调休汇总","应出勤(手动)"];
+		csvRows.push(headers.join(','));
+		for (let emp of sortedEmps) {
+			let row = [emp.empNo || "", emp.name];
+			let totalActual=0,totalOT=0,totalOff=0;
+			for (let i=0;i<currentDates.length;i++) {
+				let cell = attendanceGrid[i]?.[emp.id];
+				let val = cell ? cell.finalWorkHours : 0;
+				totalActual += val;
+				if(cell){ totalOT+=cell.overtimeHours||0; totalOff+=cell.offHours||0; }
+				row.push(val.toFixed(1));
+			}
+			let expected = manualExpectedHours[emp.id] !== undefined ? manualExpectedHours[emp.id] : '';
+			row.push(totalActual.toFixed(1), totalOT.toFixed(1), totalOff.toFixed(1), expected);
+			csvRows.push(row.map(c=>`"${c}"`).join(','));
+		}
+		let blob = new Blob(["\uFEFF"+csvRows.join("\n")], {type:"text/csv;charset=utf-8;"});
+		let a = document.createElement('a');
+		a.href = URL.createObjectURL(blob);
+		a.download = `考勤统计_${currentYearMonth}.csv`;
+		a.click();
+	}
+	
+	function initDemo() {
+		employees = [
+			{ id: 1, empNo: "1001", name: "张敏", workStart: "08:30:00", workEnd: "17:30:00", dailyStdHours: 9 },
+			{ id: 2, empNo: "1002", name: "李芳", workStart: "09:00:00", workEnd: "18:00:00", dailyStdHours: 9 },
+			{ id: 3, empNo: "1003", name: "王磊", workStart: "08:30:00", workEnd: "17:30:00", dailyStdHours: 9 },
+			{ id: 4, empNo: "1004", name: "王元琴", workStart: "07:30:00", workEnd: "16:30:00", dailyStdHours: 9 },
+			{ id: 5, empNo: "1005", name: "龚晓燕", workStart: "08:30:00", workEnd: "17:30:00", dailyStdHours: 9 }
+		];
+		nextEmpId = 6;
+		let now = new Date();
 		// 核心：月份 -1
 		now.setMonth(now.getMonth() - 1);
-        let defaultMonth = `${now.getFullYear()}-${(now.getMonth()+1).toString().padStart(2,'0')}`;
-        document.getElementById('monthSelector').value = defaultMonth;
-        currentYearMonth = defaultMonth;
-        generateMonthDates(defaultMonth);
-        initEmptyGrid();
-        renderTable();
-    }
-    
-    function bindEvents() {
-        document.getElementById('importExcelBtn').onclick = () => {
-            let inp = document.createElement('input'); inp.type='file'; inp.accept='.xls,.xlsx,.csv';
-            inp.onchange = e => { if(e.target.files[0]) importExcelFile(e.target.files[0]); };
-            inp.click();
-        };
-        document.getElementById('importEmpRuleBtn').onclick = () => {
-            let inp = document.createElement('input'); inp.type='file'; inp.accept='.csv';
-            inp.onchange = e => { if(e.target.files[0]) importEmployeeRuleCSV(e.target.files[0]); };
-            inp.click();
-        };
-        document.getElementById('viewEmpRuleBtn').onclick = () => viewEmployeeRules();
-        document.getElementById('exportEmpRuleBtn').onclick = () => exportEmployeeRuleCSV();
-        document.getElementById('downloadTemplateBtn').onclick = () => downloadTemplate();
-        document.getElementById('exportStatsBtn').onclick = () => exportStatsCSV();
-        document.getElementById('monthSelector').addEventListener('change', (e) => {
-            currentYearMonth = e.target.value;
-            generateMonthDates(currentYearMonth);
-            if (rawPunchRecords.length) rebuildGridFromRecords();
-            else initEmptyGrid();
-            renderTable();
-        });
-    }
-    
-    initDemo();
-    bindEvents();
+		let defaultMonth = `${now.getFullYear()}-${(now.getMonth()+1).toString().padStart(2,'0')}`;
+		document.getElementById('monthSelector').value = defaultMonth;
+		currentYearMonth = defaultMonth;
+		generateMonthDates(defaultMonth);
+		initEmptyGrid();
+		renderTable();
+	}
+	
+	function bindEvents() {
+		document.getElementById('importExcelBtn').onclick = () => {
+			let inp = document.createElement('input'); inp.type='file'; inp.accept='.xls,.xlsx,.csv';
+			inp.onchange = e => { if(e.target.files[0]) importExcelFile(e.target.files[0]); };
+			inp.click();
+		};
+		document.getElementById('importEmpRuleBtn').onclick = () => {
+			let inp = document.createElement('input'); inp.type='file'; inp.accept='.csv';
+			inp.onchange = e => { if(e.target.files[0]) importEmployeeRuleCSV(e.target.files[0]); };
+			inp.click();
+		};
+		document.getElementById('viewEmpRuleBtn').onclick = () => viewEmployeeRules();
+		document.getElementById('exportEmpRuleBtn').onclick = () => exportEmployeeRuleCSV();
+		document.getElementById('downloadTemplateBtn').onclick = () => downloadTemplate();
+		document.getElementById('exportStatsBtn').onclick = () => exportStatsCSV();
+		document.getElementById('monthSelector').addEventListener('change', (e) => {
+			currentYearMonth = e.target.value;
+			generateMonthDates(currentYearMonth);
+			if (rawPunchRecords.length) rebuildGridFromRecords();
+			else initEmptyGrid();
+			renderTable();
+		});
+	}
+	
+	initDemo();
+	bindEvents();
 </script>
 </body>
 </html>
