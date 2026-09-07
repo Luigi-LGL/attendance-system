@@ -292,6 +292,26 @@
 		let s = parseInt(parts[2]) || 0;
 		return h + m/60 + s/3600;
 	}
+	// 自动检测并解码 CSV 文件（支持 UTF-8, GBK, GB2312, Big5 等）
+	function detectAndDecodeCSV(buffer) {
+		// 按常见编码优先级尝试
+		const encodings = ['utf-8', 'gbk', 'gb2312', 'big5', 'shift-jis'];
+		for (let enc of encodings) {
+			try {
+				const decoder = new TextDecoder(enc, { fatal: false });
+				const str = decoder.decode(buffer);
+				// 检查是否包含中文列名或关键字（可根据实际调整）
+				if (str.includes('员工编号') || str.includes('姓名') || str.includes('empNo') || 
+					str.includes('name') || str.includes('刷卡日期') || str.includes('日期')) {
+					return str;
+				}
+			} catch(e) {
+				continue;
+			}
+		}
+		// 若都不匹配，默认用 UTF-8 解码（至少不会报错）
+		return new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+	}
 	// 向后取整到半点 (09:12 -> 09:30 ; 09:31 -> 10:00)
 	function roundBackToHalfHour(timeStr) {
 		let minutes = timeStrToMinutes(timeStr);
@@ -794,13 +814,20 @@
 	}
 	
 	function importEmployeeRuleCSV(file) {
-		let reader = new FileReader();
+		const reader = new FileReader();
 		reader.onload = function(e) {
-			let data = e.target.result;
-			let workbook = XLSX.read(data, {type: 'string'});
-			let sheet = workbook.Sheets[workbook.SheetNames[0]];
-			let rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:""});
+			const buffer = e.target.result; // ArrayBuffer
+			const str = detectAndDecodeCSV(buffer);
+			if (!str) {
+				alert("无法解码文件，请检查编码或转换为 UTF-8。");
+				return;
+			}
+			const workbook = XLSX.read(str, {type: 'string'});
+			const sheet = workbook.Sheets[workbook.SheetNames[0]];
+			const rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:""});
 			if (!rows || rows.length < 2) { alert("CSV无数据"); return; }
+
+			// ---------- 以下为原有解析逻辑，完全不变 ----------
 			let headers = rows[0].map(cell => cell?.toString().trim() || "");
 			let idxNo = headers.findIndex(h => h.includes("员工编号") || h === "empNo");
 			let idxName = headers.findIndex(h => h.includes("姓名") || h === "name");
@@ -834,7 +861,7 @@
 			if (newEmployees.length === 0) { alert("未解析到有效员工"); return; }
 			employees = newEmployees;
 			nextEmpId = Math.max(...employees.map(e=>e.id), nextEmpId) + 1;
-			// 重新映射打卡记录中员工ID 并 重新计算所有打卡的基础工时（因为上下班规则可能变了）
+			// 重新映射打卡记录
 			let newRawRecords = [];
 			for (let rec of rawPunchRecords) {
 				let emp = employees.find(e => e.empNo === rec.empNoField || e.id === rec.empId);
@@ -851,7 +878,6 @@
 				}
 			}
 			rawPunchRecords = newRawRecords;
-			// 重置手动应出勤数据
 			manualExpectedHours = {};
 			if (currentDates.length) {
 				if (rawPunchRecords.length) rebuildGridFromRecords();
@@ -860,7 +886,7 @@
 			renderTable();
 			alert(`员工规则导入成功！共 ${employees.length} 人，双人顶班规则已就绪。`);
 		};
-		reader.readAsText(file, "UTF-8");
+		reader.readAsArrayBuffer(file);  // ← 改为二进制读取
 	}
 	
 	function viewEmployeeRules() {
@@ -880,13 +906,25 @@
 	
 	// 导入打卡记录
 	function importExcelFile(file) {
-		let reader = new FileReader();
+		const reader = new FileReader();
 		reader.onload = function(e) {
-			let data = new Uint8Array(e.target.result);
-			let workbook = XLSX.read(data, { type: 'array' });
-			let sheet = workbook.Sheets[workbook.SheetNames[0]];
-			let rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+			const data = e.target.result; // ArrayBuffer
+			let workbook;
+			const isCsv = file.name.toLowerCase().endsWith('.csv');
+			if (isCsv) {
+				// CSV 文件：先解码为字符串
+				const str = detectAndDecodeCSV(data);
+				if (!str) { alert("无法解码 CSV，请检查编码"); return; }
+				workbook = XLSX.read(str, {type: 'string'});
+			} else {
+				// 真正的 Excel 文件：直接用二进制读取
+				workbook = XLSX.read(data, {type: 'array'});
+			}
+			const sheet = workbook.Sheets[workbook.SheetNames[0]];
+			const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
 			if (!rows || rows.length < 2) { alert("文件无数据"); return; }
+
+			// ---------- 以下为原有解析逻辑，完全不变 ----------
 			let headers = rows[0].map(cell => cell?.toString().trim() || "");
 			let empNoIdx = headers.findIndex(h => h.includes("员工编号") || h.includes("工号"));
 			let nameIdx = headers.findIndex(h => h.includes("姓名"));
@@ -907,7 +945,7 @@
 			renderTable();
 			alert(`导入打卡记录成功！共 ${records.length} 人天记录 (双人顶班规则已自动应用)`);
 		};
-		reader.readAsArrayBuffer(file);
+		reader.readAsArrayBuffer(file);  // 统一用 ArrayBuffer
 	}
 	
 	function exportStatsCSV() {
